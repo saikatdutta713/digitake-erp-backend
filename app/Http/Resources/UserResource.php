@@ -22,6 +22,7 @@ class UserResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
+            'avatar_url' => $this->avatar_url ?? $this->employee?->avatar_url,
             'status' => $this->status,
             'mfa_enabled' => $this->mfa_enabled,
             'last_login_at' => $this->last_login_at?->toISOString(),

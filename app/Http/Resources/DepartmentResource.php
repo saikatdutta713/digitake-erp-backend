@@ -38,6 +38,44 @@ class DepartmentResource extends JsonResource
             }),
             'is_active' => $this->is_active,
             'employees_count' => $this->whenCounted('employees'),
+            'designations_count' => $this->whenCounted('designations', $this->designations_count ?? $this->designations?->count() ?? 0),
+            'designations' => $this->whenLoaded('designations', function () {
+                return $this->designations->map(fn ($d) => [
+                    'id' => $d->id,
+                    'name' => $d->name,
+                    'code' => $d->code,
+                    'level' => $d->level,
+                    'department_id' => $d->department_id,
+                    'is_active' => (bool) $d->is_active,
+                    'employees_count' => $d->employees_count ?? $d->employees()->count(),
+                ]);
+            }),
+            'roles_count' => $this->whenCounted('roles', $this->roles_count ?? $this->roles?->count() ?? 0),
+            'roles' => $this->whenLoaded('roles', function () {
+                return $this->roles->map(fn ($r) => [
+                    'id' => $r->id,
+                    'name' => $r->name,
+                    'description' => $r->description,
+                    'is_system_role' => (bool) $r->is_system_role,
+                    'role_type' => $r->role_type,
+                    'department_id' => $r->department_id,
+                    'permissions_count' => $r->permissions->count(),
+                    'permissions' => $r->permissions->pluck('name')->values()->all(),
+                    'users_count' => $r->users()->count(),
+                ]);
+            }),
+            'department_role' => $this->whenLoaded('roles', function () {
+                $role = $this->roles->first();
+
+                return $role ? [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'description' => $role->description,
+                    'permissions_count' => $role->permissions->count(),
+                    'permissions' => $role->permissions->pluck('name')->values()->all(),
+                    'users_count' => $role->users()->count(),
+                ] : null;
+            }),
             'created_at' => $this->created_at->toISOString(),
         ];
     }

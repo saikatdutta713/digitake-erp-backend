@@ -27,10 +27,11 @@ class DesignationController extends Controller
         Gate::authorize('viewAny', Designation::class);
 
         $designations = Designation::with('department')
+            ->withCount('employees')
             ->when($request->filled('department_id'), function ($q) use ($request) {
                 $q->where('department_id', $request->input('department_id'));
             })
-            ->orderBy('level')
+            ->orderBy('level', 'desc')
             ->orderBy('name')
             ->get();
 

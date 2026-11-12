@@ -30,6 +30,7 @@ class DesignationResource extends JsonResource
             }),
             'level' => $this->level,
             'is_active' => $this->is_active,
+            'employees_count' => $this->employees_count ?? $this->employees()->count(),
             'created_at' => $this->created_at->toISOString(),
         ];
     }

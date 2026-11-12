@@ -25,6 +25,7 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'avatar_url',
         'password',
         'status',
         'failed_login_attempts',
@@ -72,6 +73,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Leave records for this user.
+     */
+    public function leaves(): HasMany
+    {
+        return $this->hasMany(Leave::class);
+    }
+
+    /**
      * Active and historical device sessions.
      */
     public function deviceSessions(): HasMany
@@ -85,6 +94,39 @@ class User extends Authenticatable
     public function auditLogs(): HasMany
     {
         return $this->hasMany(AuditLog::class, 'actor_user_id');
+    }
+
+    /**
+     * Attendance records for this user.
+     */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(Attendance::class);
+    }
+
+    public function managedProjects(): HasMany
+    {
+        return $this->hasMany(Project::class, 'project_manager_id');
+    }
+
+    public function createdProjects(): HasMany
+    {
+        return $this->hasMany(Project::class, 'created_by_user_id');
+    }
+
+    public function assignedTasks(): HasMany
+    {
+        return $this->hasMany(ProjectTask::class, 'assigned_to_user_id');
+    }
+
+    public function quotations(): HasMany
+    {
+        return $this->hasMany(Quotation::class, 'created_by_user_id');
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class, 'created_by_user_id');
     }
 
     /**

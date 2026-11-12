@@ -22,6 +22,7 @@ class CreateUserRequest extends FormRequest
             'password' => ['required', 'string', 'min:8'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['string', 'exists:roles,name'],
+            'avatar_url' => ['nullable', 'string', 'max:500'],
         ];
     }
 }

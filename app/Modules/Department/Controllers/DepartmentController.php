@@ -5,6 +5,7 @@ namespace App\Modules\Department\Controllers;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\DepartmentResource;
 use App\Models\Department;
+use App\Models\Role;
 use App\Models\User;
 use App\Modules\Audit\Services\AuditService;
 use App\Modules\Department\Requests\DepartmentRequest;
@@ -26,8 +27,13 @@ class DepartmentController extends Controller
     {
         Gate::authorize('viewAny', Department::class);
 
-        $departments = Department::with(['manager', 'parent'])
-            ->withCount('employees')
+        $departments = Department::with([
+            'manager',
+            'parent',
+            'designations' => fn ($q) => $q->withCount('employees')->orderBy('level', 'desc'),
+            'roles.permissions',
+        ])
+            ->withCount(['employees', 'roles', 'designations'])
             ->orderBy('name')
             ->get();
 
@@ -45,9 +51,25 @@ class DepartmentController extends Controller
         $actor = $request->user();
         $department = Department::create($request->validated());
 
+        // Automatically create or link departmental role
+        Role::firstOrCreate(
+            ['name' => $department->name, 'guard_name' => 'web'],
+            [
+                'description' => "Departmental role for {$department->name}",
+                'is_system_role' => false,
+                'role_type' => 'department',
+                'department_id' => $department->id,
+            ]
+        );
+
         $this->auditService->log('department.created', $department, null, $department->toArray(), $actor);
 
-        $department->load(['manager', 'parent']);
+        $department->load([
+            'manager',
+            'parent',
+            'designations' => fn ($q) => $q->withCount('employees')->orderBy('level', 'desc'),
+            'roles.permissions',
+        ])->loadCount(['employees', 'roles', 'designations']);
 
         return ApiResponse::success(new DepartmentResource($department), 'Department created successfully.', 201);
     }
@@ -58,7 +80,12 @@ class DepartmentController extends Controller
     public function show(Department $department): JsonResponse
     {
         Gate::authorize('view', $department);
-        $department->load(['manager', 'parent', 'designations'])->loadCount('employees');
+        $department->load([
+            'manager',
+            'parent',
+            'designations' => fn ($q) => $q->withCount('employees')->orderBy('level', 'desc'),
+            'roles.permissions',
+        ])->loadCount(['employees', 'roles', 'designations']);
 
         return ApiResponse::success(new DepartmentResource($department), 'Department details retrieved.');
     }
@@ -76,6 +103,16 @@ class DepartmentController extends Controller
 
         $department->update($request->validated());
 
+        // Update corresponding departmental role name if department name changed
+        if (isset($old['name']) && $old['name'] !== $department->name) {
+            Role::where('department_id', $department->id)
+                ->where('role_type', 'department')
+                ->update([
+                    'name' => $department->name,
+                    'description' => "Departmental role for {$department->name}",
+                ]);
+        }
+
         $this->auditService->log(
             'department.updated',
             $department,
@@ -84,7 +121,12 @@ class DepartmentController extends Controller
             $actor
         );
 
-        $department->load(['manager', 'parent']);
+        $department->load([
+            'manager',
+            'parent',
+            'designations' => fn ($q) => $q->withCount('employees')->orderBy('level', 'desc'),
+            'roles.permissions',
+        ])->loadCount(['employees', 'roles', 'designations']);
 
         return ApiResponse::success(new DepartmentResource($department), 'Department updated successfully.');
     }
@@ -102,6 +144,12 @@ class DepartmentController extends Controller
                 'Cannot delete department because employees are currently assigned to it.',
                 422
             );
+        }
+
+        // Delete departmental role if no users are assigned
+        $deptRole = Role::where('department_id', $department->id)->first();
+        if ($deptRole && $deptRole->users()->count() === 0) {
+            $deptRole->delete();
         }
 
         /** @var User $actor */

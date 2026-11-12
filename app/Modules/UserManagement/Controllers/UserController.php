@@ -30,11 +30,16 @@ class UserController extends Controller
         $users = User::with(['roles', 'employee.department', 'employee.designation'])
             ->when($request->filled('search'), function ($query) use ($request) {
                 $term = '%'.$request->input('search').'%';
-                $query->where('name', 'like', $term)
-                    ->orWhere('email', 'like', $term);
+                $query->where(function ($sub) use ($term) {
+                    $sub->where('name', 'like', $term)
+                        ->orWhere('email', 'like', $term);
+                });
             })
             ->when($request->filled('role'), function ($query) use ($request) {
                 $query->role($request->input('role'));
+            })
+            ->when($request->filled('status'), function ($query) use ($request) {
+                $query->where('status', $request->input('status'));
             })
             ->paginate($request->integer('per_page', 20));
 
@@ -109,12 +114,64 @@ class UserController extends Controller
      */
     public function deactivate(Request $request, User $user): JsonResponse
     {
-        Gate::authorize('deactivate', $user);
-
         /** @var User $actor */
         $actor = $request->user();
+
+        if ($actor->id === $user->id) {
+            return ApiResponse::error('SELF_DEACTIVATION_NOT_ALLOWED', 'You cannot deactivate your own account.', 403);
+        }
+
+        if ($user->isSuperAdmin()) {
+            $superAdminCount = User::role('Super Admin')->where('status', 'active')->count();
+            if ($superAdminCount <= 1) {
+                return ApiResponse::error('LAST_SUPER_ADMIN_PROTECTED', 'Cannot deactivate the last active Super Admin.', 403);
+            }
+        }
+
+        Gate::authorize('deactivate', $user);
+
         $this->userService->deactivate($user, $actor);
 
         return ApiResponse::success(new UserResource($user), 'User deactivated successfully.');
+    }
+
+    /**
+     * Archive user account.
+     */
+    public function archive(Request $request, User $user): JsonResponse
+    {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        if ($actor->id === $user->id) {
+            return ApiResponse::error('SELF_ARCHIVE_NOT_ALLOWED', 'You cannot archive your own account.', 403);
+        }
+
+        if ($user->isSuperAdmin()) {
+            return ApiResponse::error('SUPER_ADMIN_ARCHIVE_PROTECTED', 'Super Admin accounts cannot be archived.', 403);
+        }
+
+        Gate::authorize('deactivate', $user);
+
+        $this->userService->archive($user, $actor);
+        $user->load(['roles.permissions', 'employee.department', 'employee.designation']);
+
+        return ApiResponse::success(new UserResource($user), 'User archived successfully.');
+    }
+
+    /**
+     * Restore / unarchive user account.
+     */
+    public function unarchive(Request $request, User $user): JsonResponse
+    {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        Gate::authorize('update', $user);
+
+        $this->userService->unarchive($user, $actor);
+        $user->load(['roles.permissions', 'employee.department', 'employee.designation']);
+
+        return ApiResponse::success(new UserResource($user), 'User unarchived successfully.');
     }
 }

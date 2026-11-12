@@ -24,7 +24,8 @@ class UpdateUserRequest extends FormRequest
         return [
             'name' => ['sometimes', 'string', 'max:255'],
             'email' => ['sometimes', 'email', 'max:255', Rule::unique('users', 'email')->ignore($targetUser?->id)],
-            'status' => ['sometimes', 'string', 'in:active,inactive,locked,suspended'],
+            'status' => ['sometimes', 'string', 'in:active,inactive,locked,suspended,archived'],
+            'avatar_url' => ['nullable', 'string', 'max:500'],
         ];
     }
 }

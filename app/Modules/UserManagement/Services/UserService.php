@@ -25,6 +25,7 @@ class UserService
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
             'status' => 'active',
+            'avatar_url' => $data['avatar_url'] ?? null,
         ]);
 
         if (! empty($data['roles'])) {
@@ -112,6 +113,43 @@ class UserService
             $user,
             ['status' => $oldStatus],
             ['status' => 'inactive'],
+            $actor
+        );
+    }
+
+    /**
+     * Archive user account and revoke active tokens.
+     */
+    public function archive(User $user, User $actor): void
+    {
+        $oldStatus = $user->status;
+        $user->update(['status' => 'archived']);
+
+        // Revoke all tokens
+        $user->tokens()->delete();
+
+        $this->auditService->log(
+            'user.archived',
+            $user,
+            ['status' => $oldStatus],
+            ['status' => 'archived'],
+            $actor
+        );
+    }
+
+    /**
+     * Restore / unarchive user account.
+     */
+    public function unarchive(User $user, User $actor): void
+    {
+        $oldStatus = $user->status;
+        $user->update(['status' => 'active']);
+
+        $this->auditService->log(
+            'user.unarchived',
+            $user,
+            ['status' => $oldStatus],
+            ['status' => 'active'],
             $actor
         );
     }

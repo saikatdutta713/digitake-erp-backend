@@ -44,6 +44,10 @@ class EmployeeController extends Controller
             $query->where('department_id', $request->input('department_id'));
         }
 
+        if ($request->filled('designation_id')) {
+            $query->where('designation_id', $request->input('designation_id'));
+        }
+
         if ($request->filled('status')) {
             $query->where('employment_status', $request->input('status'));
         }
@@ -53,6 +57,7 @@ class EmployeeController extends Controller
             $query->where(function ($q) use ($term) {
                 $q->where('first_name', 'like', $term)
                     ->orWhere('last_name', 'like', $term)
+                    ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$term])
                     ->orWhere('employee_code', 'like', $term)
                     ->orWhere('official_email', 'like', $term);
             });
@@ -81,7 +86,14 @@ class EmployeeController extends Controller
 
         /** @var User $actor */
         $actor = $request->user();
-        $employee = $this->employeeService->create($request->validated(), $actor);
+        $data = $request->validated();
+
+        if ($request->hasFile('avatar')) {
+            $path = $request->file('avatar')->store('avatars', 'public');
+            $data['avatar_url'] = url('storage/'.$path);
+        }
+
+        $employee = $this->employeeService->create($data, $actor);
         $employee->load(['department', 'designation', 'reportingManager']);
 
         return ApiResponse::success(new EmployeeDetailResource($employee), 'Employee onboarded successfully.', 201);
@@ -107,10 +119,48 @@ class EmployeeController extends Controller
 
         /** @var User $actor */
         $actor = $request->user();
-        $updated = $this->employeeService->update($employee, $request->validated(), $actor);
+        $data = $request->validated();
+
+        if ($request->hasFile('avatar')) {
+            $path = $request->file('avatar')->store('avatars', 'public');
+            $data['avatar_url'] = url('storage/'.$path);
+        }
+
+        $updated = $this->employeeService->update($employee, $data, $actor);
         $updated->load(['department', 'designation', 'reportingManager']);
 
         return ApiResponse::success(new EmployeeDetailResource($updated), 'Employee updated successfully.');
+    }
+
+    /**
+     * Update employee display picture (avatar).
+     */
+    public function updateAvatar(Request $request, Employee $employee): JsonResponse
+    {
+        Gate::authorize('update', $employee);
+
+        $request->validate([
+            'avatar' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
+            'avatar_url' => ['nullable', 'string'],
+        ]);
+
+        if (! $request->hasFile('avatar') && ! $request->filled('avatar_url')) {
+            return ApiResponse::error('VALIDATION_ERROR', 'Please provide an avatar file or photo URL.', 422);
+        }
+
+        $avatarUrl = $request->input('avatar_url');
+
+        if ($request->hasFile('avatar')) {
+            $path = $request->file('avatar')->store('avatars', 'public');
+            $avatarUrl = url('storage/'.$path);
+        }
+
+        /** @var User $actor */
+        $actor = $request->user();
+        $updated = $this->employeeService->update($employee, ['avatar_url' => $avatarUrl], $actor);
+        $updated->load(['department', 'designation', 'reportingManager']);
+
+        return ApiResponse::success(new EmployeeDetailResource($updated), 'Employee photo updated successfully.');
     }
 
     /**

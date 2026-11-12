@@ -25,10 +25,14 @@ class EmployeeService
     public function create(array $data, User $actor): Employee
     {
         return DB::transaction(function () use ($data, $actor) {
-            // Generate sequential employee code EMP-XXXX
-            $lastEmployee = Employee::withTrashed()->orderByDesc('id')->first();
-            $nextSeq = $lastEmployee ? ($lastEmployee->id + 1) : 1;
-            $employeeCode = sprintf('EMP-%04d', $nextSeq);
+            // Generate unique short UUID for employee code (e.g. 7C9E6679)
+            if (! empty($data['employee_code'])) {
+                $employeeCode = $data['employee_code'];
+            } else {
+                do {
+                    $employeeCode = strtoupper(substr((string) Str::uuid(), 0, 8));
+                } while (Employee::where('employee_code', $employeeCode)->exists());
+            }
 
             // Create or resolve associated user account
             $password = ! empty($data['password']) ? $data['password'] : Str::random(12);
@@ -52,6 +56,7 @@ class EmployeeService
                 'phone_number' => $data['phone_number'],
                 'emergency_contact_name' => $data['emergency_contact_name'] ?? null,
                 'emergency_contact_phone' => $data['emergency_contact_phone'] ?? null,
+                'avatar_url' => $data['avatar_url'] ?? null,
                 'date_of_birth' => $data['date_of_birth'] ?? null,
                 'gender' => $data['gender'] ?? null,
                 'date_of_joining' => $data['date_of_joining'],
@@ -63,6 +68,10 @@ class EmployeeService
                 'current_address' => $data['current_address'] ?? null,
                 'permanent_address' => $data['permanent_address'] ?? null,
             ]);
+
+            if (! empty($data['avatar_url'])) {
+                $user->update(['avatar_url' => $data['avatar_url']]);
+            }
 
             // Record initial status history
             EmployeeStatusHistory::create([
@@ -93,16 +102,21 @@ class EmployeeService
     public function update(Employee $employee, array $data, User $actor): Employee
     {
         $old = $employee->only([
-            'first_name', 'last_name', 'phone_number', 'department_id', 'designation_id',
+            'first_name', 'last_name', 'phone_number', 'department_id', 'designation_id', 'avatar_url',
         ]);
 
         $employee->update($data);
 
-        // Keep User display name in sync if name changed
+        // Keep User display name and avatar in sync if changed
+        $userUpdates = [];
         if (isset($data['first_name']) || isset($data['last_name'])) {
-            $employee->user?->update([
-                'name' => "{$employee->first_name} {$employee->last_name}",
-            ]);
+            $userUpdates['name'] = "{$employee->first_name} {$employee->last_name}";
+        }
+        if (isset($data['avatar_url'])) {
+            $userUpdates['avatar_url'] = $data['avatar_url'];
+        }
+        if (! empty($userUpdates)) {
+            $employee->user?->update($userUpdates);
         }
 
         $this->auditService->log(

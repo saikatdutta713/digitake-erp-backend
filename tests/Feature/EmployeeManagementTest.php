@@ -54,11 +54,13 @@ class EmployeeManagementTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.employee_code', 'EMP-0001')
             ->assertJsonPath('data.official_email', 'alice.smith@digitake.test');
 
+        $createdCode = $response->json('data.employee_code');
+        $this->assertMatchesRegularExpression('/^[A-Z0-9]{8}$/', $createdCode);
+
         $this->assertDatabaseHas('employees', [
-            'employee_code' => 'EMP-0001',
+            'employee_code' => $createdCode,
             'official_email' => 'alice.smith@digitake.test',
         ]);
 
@@ -231,5 +233,40 @@ class EmployeeManagementTest extends TestCase
         $empUser->refresh();
         $this->assertSame('inactive', $empUser->status);
         $this->assertDatabaseMissing('personal_access_tokens', ['id' => $token->accessToken->id]);
+    }
+
+    public function test_employee_registration_persists_avatar_and_syncs_with_user_identity(): void
+    {
+        $hrManager = User::factory()->create(['status' => 'active']);
+        $hrManager->assignRole('HR Manager');
+
+        $avatarUrl = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=face';
+
+        $response = $this->actingAs($hrManager)
+            ->postJson('/api/v1/employees', [
+                'first_name' => 'Clara',
+                'last_name' => 'Oswald',
+                'official_email' => 'clara.oswald@digitake.test',
+                'phone_number' => '+1555987654',
+                'avatar_url' => $avatarUrl,
+                'date_of_joining' => '2025-03-01',
+                'department_id' => $this->engDept->id,
+                'designation_id' => $this->engDesig->id,
+                'employment_type' => 'full_time',
+            ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.avatar_url', $avatarUrl);
+
+        $this->assertDatabaseHas('employees', [
+            'official_email' => 'clara.oswald@digitake.test',
+            'avatar_url' => $avatarUrl,
+        ]);
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'clara.oswald@digitake.test',
+            'avatar_url' => $avatarUrl,
+        ]);
     }
 }

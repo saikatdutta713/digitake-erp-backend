@@ -24,6 +24,8 @@ class CreateEmployeeRequest extends FormRequest
             'phone_number' => ['required', 'string', 'max:50'],
             'emergency_contact_name' => ['nullable', 'string', 'max:100'],
             'emergency_contact_phone' => ['nullable', 'string', 'max:50'],
+            'avatar_url' => ['nullable', 'string'],
+            'avatar' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
             'date_of_birth' => ['nullable', 'date'],
             'gender' => ['nullable', 'string', 'in:male,female,other,prefer_not_to_say'],
             'date_of_joining' => ['required', 'date'],
