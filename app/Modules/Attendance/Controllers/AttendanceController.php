@@ -4,6 +4,7 @@ namespace App\Modules\Attendance\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\Employee;
 use App\Modules\Attendance\Services\AttendanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -262,6 +263,44 @@ class AttendanceController extends Controller
             'status' => 'success',
             'message' => 'Attendance policy updated successfully.',
             'data' => $policy,
+        ]);
+    }
+
+    /**
+     * View detailed tracking telemetry and analytics for an individual employee.
+     */
+    public function employeeTracking(Request $request, Employee $employee): JsonResponse
+    {
+        $actor = $request->user();
+
+        $isSuperAdmin = $actor->isSuperAdmin();
+        $isHr = $actor->hasRole('HR Manager');
+        $isSelf = ($actor->id === $employee->user_id);
+        $canViewAll = $isSuperAdmin || $isHr || $actor->can('tracking.manage');
+
+        if (! $canViewAll && ! $isSelf) {
+            if (! $actor->can('tracking.view') && ! $actor->can('attendance.view') && ! $actor->hasRole('Department Manager')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Unauthorized to view employee tracking data.',
+                ], 403);
+            }
+
+            // Department Manager departmental scoping
+            $actorDeptId = $actor->employee?->department_id;
+            if (! $actorDeptId || (int) $actorDeptId !== (int) $employee->department_id) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Unauthorized: Department Managers may only view tracking telemetry for personnel within their assigned department.',
+                ], 403);
+            }
+        }
+
+        $data = $this->attendanceService->getEmployeeTrackingData($employee, $request);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $data,
         ]);
     }
 }

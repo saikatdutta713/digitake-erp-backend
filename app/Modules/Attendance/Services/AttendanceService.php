@@ -5,6 +5,7 @@ namespace App\Modules\Attendance\Services;
 use App\Models\Attendance;
 use App\Models\AttendanceActivity;
 use App\Models\AttendancePolicy;
+use App\Models\DeviceSession;
 use App\Models\Employee;
 use App\Models\User;
 use App\Modules\Audit\Services\AuditService;
@@ -596,5 +597,321 @@ class AttendanceService
         );
 
         return $policy;
+    }
+
+    /**
+     * Compile detailed tracking telemetry, aggregate statistics, timeline series,
+     * granular telemetry intervals, and workstation bindings for a specific employee.
+     *
+     * @return array<string, mixed>
+     */
+    public function getEmployeeTrackingData(Employee $employee, Request $request): array
+    {
+        $period = (string) $request->query('period', '30d');
+        $startDateStr = $request->query('start_date');
+        $endDateStr = $request->query('end_date');
+        $modalityFilter = $request->query('modality');
+
+        $today = Carbon::today();
+
+        if ($startDateStr && $endDateStr) {
+            $startDate = Carbon::parse($startDateStr)->startOfDay();
+            $endDate = Carbon::parse($endDateStr)->endOfDay();
+        } else {
+            switch ($period) {
+                case 'today':
+                    $startDate = $today->copy()->startOfDay();
+                    $endDate = $today->copy()->endOfDay();
+                    break;
+                case '7d':
+                    $startDate = $today->copy()->subDays(6)->startOfDay();
+                    $endDate = $today->copy()->endOfDay();
+                    break;
+                case 'this_month':
+                    $startDate = $today->copy()->startOfMonth()->startOfDay();
+                    $endDate = $today->copy()->endOfDay();
+                    break;
+                case 'last_month':
+                    $startDate = $today->copy()->subMonth()->startOfMonth()->startOfDay();
+                    $endDate = $today->copy()->subMonth()->endOfMonth()->endOfDay();
+                    break;
+                case 'all':
+                    $startDate = Carbon::create(2020, 1, 1);
+                    $endDate = $today->copy()->endOfDay();
+                    break;
+                case '30d':
+                default:
+                    $startDate = $today->copy()->subDays(29)->startOfDay();
+                    $endDate = $today->copy()->endOfDay();
+                    break;
+            }
+        }
+
+        $userId = $employee->user_id;
+
+        // Load employee relationships
+        $employee->load([
+            'department:id,name,code',
+            'designation:id,title',
+            'reportingManager:id,first_name,last_name,employee_code',
+            'user:id,name,email,status',
+            'user.roles:id,name',
+        ]);
+
+        // Query attendances in date range
+        $query = Attendance::with(['overrideBy:id,name,email'])
+            ->where(function ($q) use ($employee, $userId) {
+                $q->where('employee_id', $employee->id);
+                if ($userId) {
+                    $q->orWhere('user_id', $userId);
+                }
+            })
+            ->whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()]);
+
+        if ($modalityFilter && in_array($modalityFilter, ['office', 'wfh', 'hybrid'], true)) {
+            $query->where('modality', $modalityFilter);
+        }
+
+        $records = $query->orderBy('date', 'desc')->get();
+
+        // Aggregates & Statistics
+        $totalDays = $records->count();
+        $totalDurationMinutes = (int) $records->sum('total_duration_minutes');
+        $totalActiveMinutes = (int) $records->sum('active_minutes');
+        $totalIdleMinutes = (int) $records->sum('idle_minutes');
+        $totalBreakMinutes = (int) $records->sum('break_minutes');
+
+        $totalWorkMinutes = $totalActiveMinutes + $totalIdleMinutes;
+        $averageProductivity = $totalWorkMinutes > 0
+            ? round(($totalActiveMinutes / $totalWorkMinutes) * 100, 1)
+            : ($totalDays > 0 ? round((float) ($records->avg('productivity_score') ?? 100), 1) : 100.0);
+
+        $presentCount = $records->where('status', 'present')->count();
+        $lateCount = $records->where('status', 'late')->count();
+        $halfDayCount = $records->where('status', 'half_day')->count();
+        $absentCount = $records->where('status', 'absent')->count();
+        $onLeaveCount = $records->where('status', 'on_leave')->count();
+
+        $punctualityRate = $totalDays > 0 ? round(($presentCount / $totalDays) * 100, 1) : 100.0;
+
+        $officeCount = $records->where('modality', 'office')->count();
+        $wfhCount = $records->where('modality', 'wfh')->count();
+        $hybridCount = $records->where('modality', 'hybrid')->count();
+
+        // Today status check
+        $todayRecord = Attendance::where(function ($q) use ($employee, $userId) {
+            $q->where('employee_id', $employee->id);
+            if ($userId) {
+                $q->orWhere('user_id', $userId);
+            }
+        })->where('date', $today->toDateString())->first();
+
+        $liveState = 'offline';
+        if ($todayRecord) {
+            if ($todayRecord->clock_out_at !== null) {
+                $liveState = 'clocked_out';
+            } else {
+                $lastActivity = AttendanceActivity::where('attendance_id', $todayRecord->id)
+                    ->orderByDesc('interval_start')
+                    ->first();
+                $liveState = $lastActivity?->state ?? 'active';
+            }
+        }
+
+        // Daily timeline formatting for visual charts (sorted chronologically)
+        $timeline = $records->sortBy('date')->values()->map(function (Attendance $att) {
+            $durationHours = round($att->total_duration_minutes / 60, 2);
+            $activeHours = round($att->active_minutes / 60, 2);
+            $idleHours = round($att->idle_minutes / 60, 2);
+            $breakHours = round($att->break_minutes / 60, 2);
+
+            return [
+                'id' => $att->id,
+                'date' => $att->date->toDateString(),
+                'formatted_date' => Carbon::parse($att->date)->format('M d, Y'),
+                'day_name' => Carbon::parse($att->date)->format('D'),
+                'clock_in_at' => $att->clock_in_at ? Carbon::parse($att->clock_in_at)->toIso8601String() : null,
+                'clock_out_at' => $att->clock_out_at ? Carbon::parse($att->clock_out_at)->toIso8601String() : null,
+                'clock_in_time' => $att->clock_in_at ? Carbon::parse($att->clock_in_at)->format('H:i') : null,
+                'clock_out_time' => $att->clock_out_at ? Carbon::parse($att->clock_out_at)->format('H:i') : null,
+                'duration_minutes' => $att->total_duration_minutes,
+                'duration_hours' => $durationHours,
+                'active_minutes' => $att->active_minutes,
+                'active_hours' => $activeHours,
+                'idle_minutes' => $att->idle_minutes,
+                'idle_hours' => $idleHours,
+                'break_minutes' => $att->break_minutes,
+                'break_hours' => $breakHours,
+                'productivity_score' => (float) $att->productivity_score,
+                'status' => $att->status,
+                'modality' => $att->modality,
+                'is_manual_override' => (bool) $att->is_manual_override,
+                'override_by' => $att->overrideBy ? ['id' => $att->overrideBy->id, 'name' => $att->overrideBy->name] : null,
+                'remarks' => $att->remarks,
+                'device_uuid' => $att->device_uuid,
+                'ip_address' => $att->ip_address,
+            ];
+        });
+
+        // Granular telemetry intervals (attendance_activities)
+        $attendanceIds = $records->pluck('id')->all();
+        $activitiesQuery = AttendanceActivity::whereIn('attendance_id', $attendanceIds)
+            ->orderByDesc('interval_start');
+
+        if ($request->filled('activity_date')) {
+            $filterDate = Carbon::parse((string) $request->activity_date)->toDateString();
+            $dateAtt = $records->firstWhere('date', $filterDate);
+            if ($dateAtt) {
+                $activitiesQuery->where('attendance_id', $dateAtt->id);
+            }
+        }
+
+        $telemetryIntervals = $activitiesQuery->take(250)->get()->map(function (AttendanceActivity $act) {
+            return [
+                'id' => $act->id,
+                'attendance_id' => $act->attendance_id,
+                'interval_start' => $act->interval_start?->toIso8601String(),
+                'interval_end' => $act->interval_end?->toIso8601String(),
+                'start_time' => $act->interval_start ? Carbon::parse($act->interval_start)->format('H:i:s') : null,
+                'end_time' => $act->interval_end ? Carbon::parse($act->interval_end)->format('H:i:s') : null,
+                'state' => $act->state,
+                'active_seconds' => $act->active_seconds,
+                'idle_seconds' => $act->idle_seconds,
+                'break_seconds' => $act->break_seconds,
+                'break_type' => $act->break_type,
+                'source' => $act->source,
+            ];
+        });
+
+        // Workstation sessions
+        $workstations = [];
+        if ($userId) {
+            $workstations = DeviceSession::with('device')
+                ->where('user_id', $userId)
+                ->orderByDesc('last_activity_at')
+                ->take(8)
+                ->get()
+                ->map(function (DeviceSession $ds) {
+                    return [
+                        'id' => $ds->id,
+                        'device_name' => $ds->device?->device_name ?? 'Desktop Workstation',
+                        'platform' => $ds->device?->platform ?? 'Windows',
+                        'os_version' => $ds->device?->os_version,
+                        'ip_address' => $ds->ip_address,
+                        'session_status' => $ds->session_status,
+                        'started_at' => $ds->started_at?->toIso8601String(),
+                        'last_activity_at' => $ds->last_activity_at?->toIso8601String(),
+                    ];
+                })
+                ->all();
+        }
+
+        return [
+            'period' => [
+                'key' => $period,
+                'start_date' => $startDate->toDateString(),
+                'end_date' => $endDate->toDateString(),
+            ],
+            'employee' => [
+                'id' => $employee->id,
+                'employee_code' => $employee->employee_code,
+                'first_name' => $employee->first_name,
+                'last_name' => $employee->last_name,
+                'full_name' => $employee->full_name,
+                'official_email' => $employee->official_email,
+                'personal_email' => $employee->personal_email,
+                'phone_number' => $employee->phone_number,
+                'avatar_url' => $employee->avatar_url,
+                'gender' => $employee->gender,
+                'date_of_birth' => $employee->date_of_birth?->toDateString(),
+                'date_of_joining' => $employee->date_of_joining?->toDateString(),
+                'employment_type' => $employee->employment_type,
+                'employment_status' => $employee->employment_status,
+                'department' => $employee->department ? [
+                    'id' => $employee->department->id,
+                    'name' => $employee->department->name,
+                    'code' => $employee->department->code,
+                ] : null,
+                'designation' => $employee->designation ? [
+                    'id' => $employee->designation->id,
+                    'title' => $employee->designation->title,
+                ] : null,
+                'reporting_manager' => $employee->reportingManager ? [
+                    'id' => $employee->reportingManager->id,
+                    'name' => $employee->reportingManager->full_name,
+                    'code' => $employee->reportingManager->employee_code,
+                ] : null,
+                'user' => $employee->user ? [
+                    'id' => $employee->user->id,
+                    'name' => $employee->user->name,
+                    'email' => $employee->user->email,
+                    'status' => $employee->user->status,
+                    'roles' => $employee->user->roles->pluck('name')->all(),
+                ] : null,
+            ],
+            'live_presence' => [
+                'state' => $liveState,
+                'is_clocked_in' => $todayRecord && $todayRecord->clock_out_at === null,
+                'clock_in_at' => $todayRecord?->clock_in_at?->toIso8601String(),
+                'clock_out_at' => $todayRecord?->clock_out_at?->toIso8601String(),
+                'today_active_minutes' => $todayRecord?->active_minutes ?? 0,
+                'today_idle_minutes' => $todayRecord?->idle_minutes ?? 0,
+                'today_break_minutes' => $todayRecord?->break_minutes ?? 0,
+                'modality' => $todayRecord?->modality,
+                'status' => $todayRecord?->status,
+            ],
+            'statistics' => [
+                'total_days' => $totalDays,
+                'total_duration_hours' => round($totalDurationMinutes / 60, 1),
+                'total_active_hours' => round($totalActiveMinutes / 60, 1),
+                'total_idle_hours' => round($totalIdleMinutes / 60, 1),
+                'total_break_hours' => round($totalBreakMinutes / 60, 1),
+                'avg_daily_active_hours' => $totalDays > 0 ? round(($totalActiveMinutes / 60) / $totalDays, 1) : 0,
+                'avg_daily_duration_hours' => $totalDays > 0 ? round(($totalDurationMinutes / 60) / $totalDays, 1) : 0,
+                'productivity_percentage' => $averageProductivity,
+                'idle_ratio_percentage' => $totalWorkMinutes > 0 ? round(($totalIdleMinutes / $totalWorkMinutes) * 100, 1) : 0,
+                'punctuality_rate' => $punctualityRate,
+                'status_distribution' => [
+                    'present' => $presentCount,
+                    'late' => $lateCount,
+                    'half_day' => $halfDayCount,
+                    'absent' => $absentCount,
+                    'on_leave' => $onLeaveCount,
+                ],
+                'modality_distribution' => [
+                    'office' => $officeCount,
+                    'wfh' => $wfhCount,
+                    'hybrid' => $hybridCount,
+                ],
+            ],
+            'daily_timeline' => $timeline,
+            'raw_attendances' => $records->values()->map(fn (Attendance $a) => [
+                'id' => $a->id,
+                'date' => $a->date->toDateString(),
+                'formatted_date' => Carbon::parse($a->date)->format('M d, Y'),
+                'clock_in_at' => $a->clock_in_at?->toIso8601String(),
+                'clock_out_at' => $a->clock_out_at?->toIso8601String(),
+                'clock_in_time' => $a->clock_in_at ? Carbon::parse($a->clock_in_at)->format('H:i') : '—',
+                'clock_out_time' => $a->clock_out_at ? Carbon::parse($a->clock_out_at)->format('H:i') : '—',
+                'duration_minutes' => $a->total_duration_minutes,
+                'duration_hours' => round($a->total_duration_minutes / 60, 2),
+                'active_minutes' => $a->active_minutes,
+                'active_hours' => round($a->active_minutes / 60, 2),
+                'idle_minutes' => $a->idle_minutes,
+                'idle_hours' => round($a->idle_minutes / 60, 2),
+                'break_minutes' => $a->break_minutes,
+                'break_hours' => round($a->break_minutes / 60, 2),
+                'productivity_score' => (float) $a->productivity_score,
+                'status' => $a->status,
+                'modality' => $a->modality,
+                'is_manual_override' => (bool) $a->is_manual_override,
+                'override_by' => $a->overrideBy ? ['id' => $a->overrideBy->id, 'name' => $a->overrideBy->name] : null,
+                'remarks' => $a->remarks,
+                'device_uuid' => $a->device_uuid,
+                'ip_address' => $a->ip_address,
+            ]),
+            'telemetry_intervals' => $telemetryIntervals,
+            'workstations' => $workstations,
+        ];
     }
 }

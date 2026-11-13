@@ -123,6 +123,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/telemetry', [AttendanceController::class, 'recordTelemetry']);
         Route::get('/roster', [AttendanceController::class, 'roster']);
         Route::get('/stats', [AttendanceController::class, 'stats']);
+        Route::get('/employee/{employee}', [AttendanceController::class, 'employeeTracking']);
         Route::post('/manual-punch', [AttendanceController::class, 'manualPunch']);
         Route::put('/{attendance}', [AttendanceController::class, 'adjustRecord']);
         Route::get('/policy', [AttendanceController::class, 'getPolicy']);
