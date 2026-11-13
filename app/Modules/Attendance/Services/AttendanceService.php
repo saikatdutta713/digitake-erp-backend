@@ -652,7 +652,7 @@ class AttendanceService
         // Load employee relationships
         $employee->load([
             'department:id,name,code',
-            'designation:id,title',
+            'designation:id,name,code',
             'reportingManager:id,first_name,last_name,employee_code',
             'user:id,name,email,status',
             'user.roles:id,name',
@@ -834,7 +834,9 @@ class AttendanceService
                 ] : null,
                 'designation' => $employee->designation ? [
                     'id' => $employee->designation->id,
-                    'title' => $employee->designation->title,
+                    'title' => $employee->designation->name,
+                    'name' => $employee->designation->name,
+                    'code' => $employee->designation->code,
                 ] : null,
                 'reporting_manager' => $employee->reportingManager ? [
                     'id' => $employee->reportingManager->id,
