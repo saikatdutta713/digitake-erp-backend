@@ -3,6 +3,7 @@
 use App\Modules\Attendance\Controllers\AttendanceController;
 use App\Modules\Audit\Controllers\AuditLogController;
 use App\Modules\Authentication\Controllers\AuthenticationController;
+use App\Modules\Dashboard\Controllers\DashboardController;
 use App\Modules\Department\Controllers\DepartmentController;
 use App\Modules\Designation\Controllers\DesignationController;
 use App\Modules\DeviceManagement\Controllers\DeviceController;
@@ -37,6 +38,9 @@ Route::post('/devices/register', [DeviceController::class, 'register']);
 
 // Authenticated API Routes
 Route::middleware(['auth:sanctum'])->group(function () {
+    // Executive Dashboard Analytics
+    Route::get('/dashboard', [DashboardController::class, 'stats']);
+
     // Auth Session Lifecycle
     Route::prefix('auth')->group(function () {
         Route::post('/logout', [AuthenticationController::class, 'logout']);
