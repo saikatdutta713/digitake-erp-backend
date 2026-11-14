@@ -684,7 +684,7 @@ class AttendanceService
         $totalWorkMinutes = $totalActiveMinutes + $totalIdleMinutes;
         $averageProductivity = $totalWorkMinutes > 0
             ? round(($totalActiveMinutes / $totalWorkMinutes) * 100, 1)
-            : ($totalDays > 0 ? round((float) ($records->avg('productivity_score') ?? 100), 1) : 100.0);
+            : ($totalDays > 0 ? round((float) ($records->avg('productivity_score') ?? 0), 1) : 0);
 
         $presentCount = $records->where('status', 'present')->count();
         $lateCount = $records->where('status', 'late')->count();
@@ -692,7 +692,7 @@ class AttendanceService
         $absentCount = $records->where('status', 'absent')->count();
         $onLeaveCount = $records->where('status', 'on_leave')->count();
 
-        $punctualityRate = $totalDays > 0 ? round(($presentCount / $totalDays) * 100, 1) : 100.0;
+        $punctualityRate = $totalDays > 0 ? round(($presentCount / $totalDays) * 100, 1) : 0;
 
         $officeCount = $records->where('modality', 'office')->count();
         $wfhCount = $records->where('modality', 'wfh')->count();
@@ -863,6 +863,7 @@ class AttendanceService
                 'status' => $todayRecord?->status,
             ],
             'statistics' => [
+                'has_data' => $totalDays > 0,
                 'total_days' => $totalDays,
                 'total_duration_hours' => round($totalDurationMinutes / 60, 1),
                 'total_active_hours' => round($totalActiveMinutes / 60, 1),
@@ -870,9 +871,9 @@ class AttendanceService
                 'total_break_hours' => round($totalBreakMinutes / 60, 1),
                 'avg_daily_active_hours' => $totalDays > 0 ? round(($totalActiveMinutes / 60) / $totalDays, 1) : 0,
                 'avg_daily_duration_hours' => $totalDays > 0 ? round(($totalDurationMinutes / 60) / $totalDays, 1) : 0,
-                'productivity_percentage' => $averageProductivity,
-                'idle_ratio_percentage' => $totalWorkMinutes > 0 ? round(($totalIdleMinutes / $totalWorkMinutes) * 100, 1) : 0,
-                'punctuality_rate' => $punctualityRate,
+                'productivity_percentage' => $totalDays > 0 ? $averageProductivity : null,
+                'idle_ratio_percentage' => $totalWorkMinutes > 0 ? round(($totalIdleMinutes / $totalWorkMinutes) * 100, 1) : null,
+                'punctuality_rate' => $totalDays > 0 ? $punctualityRate : null,
                 'status_distribution' => [
                     'present' => $presentCount,
                     'late' => $lateCount,
