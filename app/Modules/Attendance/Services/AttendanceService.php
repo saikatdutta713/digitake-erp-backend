@@ -26,6 +26,10 @@ class AttendanceService
      */
     public function clockIn(User $user, array $data = [], ?string $ip = null): Attendance
     {
+        if ($user->hasRole('Super Admin')) {
+            throw new \DomainException('Superadmin accounts are exempt from attendance tracking and cannot clock in.');
+        }
+
         $today = Carbon::today()->toDateString();
         $policy = AttendancePolicy::getActivePolicy();
 
@@ -111,6 +115,10 @@ class AttendanceService
      */
     public function clockOut(User $user, ?string $remarks = null): Attendance
     {
+        if ($user->hasRole('Super Admin')) {
+            throw new \DomainException('Superadmin accounts are exempt from attendance tracking and cannot clock out.');
+        }
+
         $today = Carbon::today()->toDateString();
         $attendance = Attendance::where('user_id', $user->id)
             ->where('date', $today)
@@ -242,6 +250,13 @@ class AttendanceService
      */
     public function recordTelemetry(User $user, array $intervals, ?string $ip = null): array
     {
+        if ($user->hasRole('Super Admin')) {
+            return [
+                'synced_count' => 0,
+                'is_exempt' => true,
+            ];
+        }
+
         $today = Carbon::today()->toDateString();
         $attendance = Attendance::where('user_id', $user->id)
             ->where('date', $today)

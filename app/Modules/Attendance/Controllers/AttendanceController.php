@@ -20,6 +20,20 @@ class AttendanceController extends Controller
      */
     public function today(Request $request): JsonResponse
     {
+        if ($request->user()->hasRole('Super Admin')) {
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'is_exempt' => true,
+                    'is_clocked_in' => false,
+                    'is_on_break' => false,
+                    'current_break_type' => null,
+                    'attendance' => null,
+                    'policy' => null,
+                ],
+            ]);
+        }
+
         $status = $this->attendanceService->getTodayStatus($request->user());
 
         return response()->json([
@@ -33,6 +47,13 @@ class AttendanceController extends Controller
      */
     public function clockIn(Request $request): JsonResponse
     {
+        if ($request->user()->hasRole('Super Admin')) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Superadmin accounts are exempt from attendance tracking and cannot clock in or out.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'modality' => ['nullable', 'string', 'in:office,wfh,hybrid'],
             'device_uuid' => ['nullable', 'string', 'max:255'],
@@ -53,6 +74,13 @@ class AttendanceController extends Controller
      */
     public function clockOut(Request $request): JsonResponse
     {
+        if ($request->user()->hasRole('Super Admin')) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Superadmin accounts are exempt from attendance tracking and cannot clock in or out.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
@@ -71,6 +99,13 @@ class AttendanceController extends Controller
      */
     public function startBreak(Request $request): JsonResponse
     {
+        if ($request->user()->hasRole('Super Admin')) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Superadmin accounts are exempt from attendance tracking.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'break_type' => ['nullable', 'string', 'max:50'],
         ]);
@@ -89,6 +124,13 @@ class AttendanceController extends Controller
      */
     public function endBreak(Request $request): JsonResponse
     {
+        if ($request->user()->hasRole('Super Admin')) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Superadmin accounts are exempt from attendance tracking.',
+            ], 403);
+        }
+
         $attendance = $this->attendanceService->endBreak($request->user());
 
         return response()->json([
@@ -103,6 +145,17 @@ class AttendanceController extends Controller
      */
     public function recordTelemetry(Request $request): JsonResponse
     {
+        if ($request->user()->hasRole('Super Admin')) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Superadmin accounts are exempt from telemetry tracking.',
+                'data' => [
+                    'synced_count' => 0,
+                    'is_exempt' => true,
+                ],
+            ]);
+        }
+
         $validated = $request->validate([
             'intervals' => ['required', 'array'],
             'intervals.*.interval_start' => ['nullable', 'string'],
