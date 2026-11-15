@@ -36,6 +36,7 @@ class UpdateEmployeeRequest extends FormRequest
             'designation_id' => ['sometimes', 'exists:designations,id'],
             'reporting_manager_id' => ['nullable', 'exists:employees,id', Rule::notIn([$employee?->id])],
             'employment_type' => ['sometimes', 'string', 'in:full_time,part_time,contract,intern'],
+            'employment_status' => ['sometimes', 'string', 'in:active,inactive,on_leave,suspended,terminated,probation,archived,resigned'],
             'current_address' => ['nullable', 'string'],
             'permanent_address' => ['nullable', 'string'],
         ];

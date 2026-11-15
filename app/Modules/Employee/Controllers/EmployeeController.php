@@ -175,8 +175,8 @@ class EmployeeController extends Controller
         $this->employeeService->updateStatus(
             $employee,
             $request->input('status'),
-            $request->input('effective_date'),
-            $request->input('reason'),
+            $request->input('effective_date') ?? now()->toDateString(),
+            $request->input('reason') ?? 'Status updated by HR/Admin',
             $actor
         );
 
@@ -213,5 +213,38 @@ class EmployeeController extends Controller
         $bank = $this->employeeService->updateBankDetails($employee, $request->validated(), $actor);
 
         return ApiResponse::success(new EmployeeBankDetailResource($bank), 'Bank details updated successfully.');
+    }
+
+    /**
+     * Completely and permanently delete an employee record.
+     */
+    public function destroy(Request $request, Employee $employee): JsonResponse
+    {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        // Prevent self-deletion
+        if ($actor->employee && $actor->employee->id === $employee->id) {
+            return ApiResponse::error(
+                'CANNOT_DELETE_SELF',
+                'You cannot delete your own employee record.',
+                403
+            );
+        }
+
+        // Prevent deleting Super Admin employee records
+        if ($employee->user && ($employee->user->isSuperAdmin() || $employee->user->hasRole('Super Admin'))) {
+            return ApiResponse::error(
+                'CANNOT_DELETE_SUPER_ADMIN',
+                'Super Administrator employee records cannot be deleted.',
+                403
+            );
+        }
+
+        Gate::authorize('delete', $employee);
+
+        $this->employeeService->delete($employee, $actor);
+
+        return ApiResponse::success(null, 'Employee record completely removed.');
     }
 }

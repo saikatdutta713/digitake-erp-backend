@@ -79,12 +79,16 @@ class EmployeePolicy
      */
     public function archive(User $actor, Employee $employee): bool
     {
+        if ($actor->hasRole('super_admin') || $actor->is_super_admin) {
+            return true;
+        }
+
         // Cannot archive self
         if ($actor->employee && $actor->employee->id === $employee->id) {
             return false;
         }
 
-        return $actor->hasPermissionTo('employees.archive');
+        return $actor->hasPermissionTo('employees.archive') || $actor->hasPermissionTo('employees.update');
     }
 
     /**
@@ -107,5 +111,27 @@ class EmployeePolicy
     public function updateBank(User $actor, Employee $employee): bool
     {
         return $actor->hasAnyRole(['Super Admin', 'HR Manager', 'Finance Manager']);
+    }
+
+    /**
+     * Determine whether the user can permanently delete the employee record.
+     */
+    public function delete(User $actor, Employee $employee): bool
+    {
+        // Cannot delete self
+        if ($actor->employee && $actor->employee->id === $employee->id) {
+            return false;
+        }
+
+        // Cannot delete Super Admin employee record
+        if ($employee->user && ($employee->user->isSuperAdmin() || $employee->user->hasRole('Super Admin'))) {
+            return false;
+        }
+
+        if ($actor->isSuperAdmin() || $actor->hasRole('Super Admin')) {
+            return true;
+        }
+
+        return $actor->hasPermissionTo('employees.delete');
     }
 }

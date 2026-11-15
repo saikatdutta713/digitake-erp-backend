@@ -91,8 +91,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/', [EmployeeController::class, 'store']);
         Route::get('/{employee}', [EmployeeController::class, 'show']);
         Route::put('/{employee}', [EmployeeController::class, 'update']);
+        Route::delete('/{employee}', [EmployeeController::class, 'destroy']);
+        Route::post('/{employee}/delete', [EmployeeController::class, 'destroy']);
         Route::post('/{employee}/avatar', [EmployeeController::class, 'updateAvatar']);
-        Route::post('/{employee}/status', [EmployeeController::class, 'updateStatus']);
+        Route::match(['post', 'patch'], '/{employee}/status', [EmployeeController::class, 'updateStatus']);
         Route::get('/{employee}/bank', [EmployeeController::class, 'getBankDetails']);
         Route::put('/{employee}/bank', [EmployeeController::class, 'updateBankDetails']);
     });
@@ -171,5 +173,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::prefix('audit-logs')->group(function () {
         Route::get('/', [AuditLogController::class, 'index']);
         Route::get('/{auditLog}', [AuditLogController::class, 'show']);
+    });
+
+    // System Maintenance & Migrations (Super Admin Only)
+    Route::post('/system/migrate', function () {
+        $actor = auth()->user();
+        if (!$actor || (!$actor->isSuperAdmin() && !$actor->hasRole('Super Admin'))) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+        return response()->json([
+            'message' => 'Migrations executed successfully',
+            'output' => \Illuminate\Support\Facades\Artisan::output(),
+        ]);
     });
 });

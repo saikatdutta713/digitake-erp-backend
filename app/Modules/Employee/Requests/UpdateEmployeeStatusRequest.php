@@ -17,9 +17,9 @@ class UpdateEmployeeStatusRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => ['required', 'string', 'in:active,inactive,resigned,terminated,probation,archived'],
-            'effective_date' => ['required', 'date'],
-            'reason' => ['required', 'string', 'max:1000'],
+            'status' => ['required', 'string', 'in:active,inactive,resigned,terminated,probation,archived,on_leave,suspended'],
+            'effective_date' => ['nullable', 'date'],
+            'reason' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }

@@ -38,6 +38,7 @@ class RolesAndPermissionsSeeder extends Seeder
                 'employees.view',
                 'employees.create',
                 'employees.update',
+                'employees.delete',
                 'employees.archive',
                 'employees.export',
             ],
@@ -192,7 +193,7 @@ class RolesAndPermissionsSeeder extends Seeder
                 'role_type' => 'custom',
                 'department_id' => null,
                 'permissions' => [
-                    'employees.view', 'employees.create', 'employees.update', 'employees.archive', 'employees.export',
+                    'employees.view', 'employees.create', 'employees.update', 'employees.delete', 'employees.archive', 'employees.export',
                     'departments.view', 'departments.update',
                     'attendance.view', 'attendance.mark', 'attendance.update', 'attendance.approve', 'attendance.export',
                     'leaves.view', 'leaves.apply', 'leaves.approve', 'leaves.reject', 'leaves.manage',

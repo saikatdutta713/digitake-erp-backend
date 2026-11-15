@@ -2,9 +2,12 @@
 
 namespace App\Modules\Employee\Services;
 
+use App\Models\Attendance;
+use App\Models\Department;
 use App\Models\Employee;
 use App\Models\EmployeeBankDetail;
 use App\Models\EmployeeStatusHistory;
+use App\Models\Leave;
 use App\Models\User;
 use App\Modules\Audit\Services\AuditService;
 use Illuminate\Support\Facades\DB;
@@ -102,8 +105,19 @@ class EmployeeService
     public function update(Employee $employee, array $data, User $actor): Employee
     {
         $old = $employee->only([
-            'first_name', 'last_name', 'phone_number', 'department_id', 'designation_id', 'avatar_url',
+            'first_name', 'last_name', 'phone_number', 'department_id', 'designation_id', 'avatar_url', 'employment_status',
         ]);
+
+        if (isset($data['employment_status']) && $data['employment_status'] !== $employee->employment_status) {
+            $this->updateStatus(
+                $employee,
+                $data['employment_status'],
+                now()->toDateString(),
+                'Personnel status updated via employee record edit',
+                $actor
+            );
+            unset($data['employment_status']);
+        }
 
         $employee->update($data);
 
@@ -191,5 +205,48 @@ class EmployeeService
         ], $actor);
 
         return $bankDetail;
+    }
+
+    /**
+     * Completely and permanently delete an employee record and associated credentials.
+     */
+    public function delete(Employee $employee, User $actor): void
+    {
+        DB::transaction(function () use ($employee, $actor) {
+            $user = $employee->user;
+            $old = [
+                'id' => $employee->id,
+                'employee_code' => $employee->employee_code,
+                'name' => "{$employee->first_name} {$employee->last_name}",
+                'official_email' => $employee->official_email,
+                'department_id' => $employee->department_id,
+                'designation_id' => $employee->designation_id,
+            ];
+
+            // 1. Unassign as manager in any departments or direct reports
+            Department::where('manager_id', $employee->id)->update(['manager_id' => null]);
+            Employee::where('reporting_manager_id', $employee->id)->update(['reporting_manager_id' => null]);
+
+            // 2. Clear related child records
+            $employee->bankDetails()->delete();
+            $employee->statusHistory()->delete();
+            $employee->documents()->delete();
+
+            // 3. Clear attendances and leaves
+            Attendance::where('employee_id', $employee->id)->delete();
+            Leave::where('employee_id', $employee->id)->delete();
+
+            // 4. Force delete the employee record completely
+            $employee->forceDelete();
+
+            // 5. If linked user account is not a Super Admin, revoke sessions and delete user
+            if ($user && ! $user->isSuperAdmin() && ! $user->hasRole('Super Admin')) {
+                $user->tokens()->delete();
+                $user->forceDelete();
+            }
+
+            // 6. Log audit event
+            $this->auditService->log('employee.deleted', null, $old, null, $actor);
+        });
     }
 }

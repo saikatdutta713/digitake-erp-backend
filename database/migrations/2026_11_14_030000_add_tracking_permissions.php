@@ -49,4 +49,3 @@ return new class extends Migration
         Permission::whereIn('name', ['tracking.view', 'tracking.manage', 'tracking.export'])->delete();
     }
 };
-
