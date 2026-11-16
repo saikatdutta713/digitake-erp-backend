@@ -15,6 +15,7 @@ use App\Modules\Project\Controllers\ProjectController;
 use App\Modules\Project\Controllers\QuotationController;
 use App\Modules\UserManagement\Controllers\RoleController;
 use App\Modules\UserManagement\Controllers\UserController;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -178,13 +179,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // System Maintenance & Migrations (Super Admin Only)
     Route::post('/system/migrate', function () {
         $actor = auth()->user();
-        if (!$actor || (!$actor->isSuperAdmin() && !$actor->hasRole('Super Admin'))) {
+        if (! $actor || (! $actor->isSuperAdmin() && ! $actor->hasRole('Super Admin'))) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-        \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+        Artisan::call('migrate', ['--force' => true]);
+
         return response()->json([
             'message' => 'Migrations executed successfully',
-            'output' => \Illuminate\Support\Facades\Artisan::output(),
+            'output' => Artisan::output(),
         ]);
     });
 });

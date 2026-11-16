@@ -9,6 +9,7 @@ use App\Models\EmployeeBankDetail;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class EmployeeManagementTest extends TestCase
@@ -268,5 +269,174 @@ class EmployeeManagementTest extends TestCase
             'email' => 'clara.oswald@digitake.test',
             'avatar_url' => $avatarUrl,
         ]);
+    }
+
+    public function test_storage_route_serves_avatar_files(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('avatars/test-avatar.jpg', 'fake-image-bytes');
+
+        $response = $this->get('/storage/avatars/test-avatar.jpg');
+
+        $response->assertStatus(200);
+        $this->assertEquals('fake-image-bytes', $response->streamedContent());
+    }
+
+    public function test_updating_employee_status_via_put_request_persists_status_and_history(): void
+    {
+        $hrManager = User::factory()->create(['status' => 'active']);
+        $hrManager->assignRole('HR Manager');
+
+        $empUser = User::factory()->create(['status' => 'active']);
+        $employee = Employee::create([
+            'user_id' => $empUser->id,
+            'employee_code' => 'EMP-0505',
+            'first_name' => 'John',
+            'last_name' => 'Doe',
+            'official_email' => 'john.doe@digitake.test',
+            'phone_number' => '+1555505050',
+            'date_of_joining' => '2024-05-01',
+            'department_id' => $this->engDept->id,
+            'designation_id' => $this->engDesig->id,
+            'employment_status' => 'active',
+        ]);
+
+        $response = $this->actingAs($hrManager)
+            ->putJson("/api/v1/employees/{$employee->id}", [
+                'employment_status' => 'suspended',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.employment_status', 'suspended');
+
+        $employee->refresh();
+        $this->assertSame('suspended', $employee->employment_status);
+
+        $this->assertDatabaseHas('employee_status_history', [
+            'employee_id' => $employee->id,
+            'old_status' => 'active',
+            'new_status' => 'suspended',
+        ]);
+    }
+
+    public function test_user_with_employees_delete_permission_can_delete_employee_completely(): void
+    {
+        $hrManager = User::factory()->create(['status' => 'active']);
+        $hrManager->assignRole('HR Manager');
+
+        $empUser = User::factory()->create(['status' => 'active']);
+        $employee = Employee::create([
+            'user_id' => $empUser->id,
+            'employee_code' => 'EMP-0606',
+            'first_name' => 'Charlie',
+            'last_name' => 'Brown',
+            'official_email' => 'charlie.brown@digitake.test',
+            'phone_number' => '+1555606060',
+            'date_of_joining' => '2024-05-01',
+            'department_id' => $this->engDept->id,
+            'designation_id' => $this->engDesig->id,
+            'employment_status' => 'active',
+        ]);
+
+        EmployeeBankDetail::create([
+            'employee_id' => $employee->id,
+            'bank_name' => 'Standard Bank',
+            'account_number' => '1234567890',
+            'routing_code' => 'STND0001234',
+            'account_type' => 'savings',
+        ]);
+
+        $response = $this->actingAs($hrManager)
+            ->deleteJson("/api/v1/employees/{$employee->id}");
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true);
+
+        // Employee record is completely deleted
+        $this->assertDatabaseMissing('employees', ['id' => $employee->id]);
+        $this->assertDatabaseMissing('employee_bank_details', ['employee_id' => $employee->id]);
+        $this->assertDatabaseMissing('users', ['id' => $empUser->id]);
+    }
+
+    public function test_user_without_employees_delete_permission_cannot_delete_employee(): void
+    {
+        $regularUser = User::factory()->create(['status' => 'active']);
+        $regularUser->assignRole('Employee');
+
+        $targetUser = User::factory()->create(['status' => 'active']);
+        $targetEmployee = Employee::create([
+            'user_id' => $targetUser->id,
+            'employee_code' => 'EMP-0707',
+            'first_name' => 'Target',
+            'last_name' => 'User',
+            'official_email' => 'target.user@digitake.test',
+            'phone_number' => '+1555707070',
+            'date_of_joining' => '2024-05-01',
+            'department_id' => $this->engDept->id,
+            'designation_id' => $this->engDesig->id,
+            'employment_status' => 'active',
+        ]);
+
+        $response = $this->actingAs($regularUser)
+            ->deleteJson("/api/v1/employees/{$targetEmployee->id}");
+
+        $response->assertStatus(403);
+        $this->assertDatabaseHas('employees', ['id' => $targetEmployee->id]);
+    }
+
+    public function test_user_cannot_delete_their_own_employee_record(): void
+    {
+        $hrManager = User::factory()->create(['status' => 'active']);
+        $hrManager->assignRole('HR Manager');
+
+        $hrEmployee = Employee::create([
+            'user_id' => $hrManager->id,
+            'employee_code' => 'EMP-0808',
+            'first_name' => 'HR',
+            'last_name' => 'Boss',
+            'official_email' => 'hr.boss@digitake.test',
+            'phone_number' => '+1555808080',
+            'date_of_joining' => '2024-01-01',
+            'department_id' => $this->engDept->id,
+            'designation_id' => $this->engDesig->id,
+            'employment_status' => 'active',
+        ]);
+
+        $response = $this->actingAs($hrManager)
+            ->deleteJson("/api/v1/employees/{$hrEmployee->id}");
+
+        $response->assertStatus(403)
+            ->assertJsonPath('error.code', 'CANNOT_DELETE_SELF');
+
+        $this->assertDatabaseHas('employees', ['id' => $hrEmployee->id]);
+    }
+
+    public function test_super_admin_employee_record_cannot_be_deleted(): void
+    {
+        $hrManager = User::factory()->create(['status' => 'active']);
+        $hrManager->assignRole('HR Manager');
+
+        $superAdminUser = User::factory()->create(['status' => 'active']);
+        $superAdminUser->assignRole('Super Admin');
+
+        $superAdminEmployee = Employee::create([
+            'user_id' => $superAdminUser->id,
+            'employee_code' => 'EMP-0909',
+            'first_name' => 'Super',
+            'last_name' => 'Admin',
+            'official_email' => 'super.admin@digitake.test',
+            'phone_number' => '+1555909090',
+            'date_of_joining' => '2024-01-01',
+            'department_id' => $this->engDept->id,
+            'designation_id' => $this->engDesig->id,
+            'employment_status' => 'active',
+        ]);
+
+        $response = $this->actingAs($hrManager)
+            ->deleteJson("/api/v1/employees/{$superAdminEmployee->id}");
+
+        $response->assertStatus(403);
+        $this->assertDatabaseHas('employees', ['id' => $superAdminEmployee->id]);
     }
 }
